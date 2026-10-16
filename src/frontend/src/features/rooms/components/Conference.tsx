@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
@@ -47,6 +47,7 @@ import { MeetDevtools } from '@/features/devtools'
 import { VOICE_AUDIO_CONSTRAINTS } from '@/features/rooms/livekit/utils/constants'
 import { resolveAudioOutputDeviceId } from '@/features/rooms/utils/resolveAudioOutputDeviceId'
 import { ConnectionEndReason } from '@/features/rooms/utils/connectionEndReason'
+import { createReconnectPolicy } from '@/features/rooms/livekit/utils/reconnectPolicy'
 
 export const Conference = ({
   roomId,
@@ -137,7 +138,29 @@ export const Conference = ({
     apiConfig?.livekit.default_video_codec,
   ])
 
-  const room = useMemo(() => new Room(roomOptions), [roomOptions])
+  const reconnect = apiConfig?.livekit.reconnect
+  const room = useMemo(() => {
+    const reconnectPolicy = createReconnectPolicy({
+      backoff_enabled: reconnect?.backoff_enabled,
+      base_delay_ms: reconnect?.base_delay_ms,
+      max_delay_ms: reconnect?.max_delay_ms,
+      give_up_after_ms: reconnect?.give_up_after_ms,
+      backoff_reset_ms: reconnect?.backoff_reset_ms,
+    })
+
+    if (!reconnectPolicy) return new Room(roomOptions) // use Livekit default policy
+
+    const newRoom = new Room({ ...roomOptions, reconnectPolicy })
+    reconnectPolicy.attach(newRoom)
+    return newRoom
+  }, [
+    roomOptions,
+    reconnect?.backoff_enabled,
+    reconnect?.base_delay_ms,
+    reconnect?.max_delay_ms,
+    reconnect?.give_up_after_ms,
+    reconnect?.backoff_reset_ms,
+  ])
 
   useEffect(() => {
     /**
@@ -203,6 +226,24 @@ export const Conference = ({
     return livekit_url
   }, [apiConfig?.livekit])
 
+  const handleError = useCallback((e: Error) => {
+    const failure = getMediaDeviceFailure(e)
+    if (failure && failure !== MediaDeviceFailure.Other) return
+
+    // connect() was aborted by a disconnect() before the join completed
+    if (
+      e instanceof ConnectionError &&
+      e.reason === ConnectionErrorReason.Cancelled
+    ) {
+      void captureEvent('connection-cancelled')
+      return
+    }
+
+    reportError('livekit_room_error', e, {
+      path: 'connect_publish',
+    })
+  }, [])
+
   const { t } = useTranslation('rooms')
   if (fetchError?.statusCode == 410) {
     return (
@@ -226,7 +267,6 @@ export const Conference = ({
   // Some clients (like DINUM) operate in bandwidth-constrained environments
   // These settings help ensure successful connections in poor network conditions
   const connectOptions = {
-    maxRetries: 5, // Default: 1. Only for unreachable server scenarios
     peerConnectionTimeout: 60000, // Default: 15s. Extended for slow TURN/TLS negotiation
   }
 
@@ -250,23 +290,7 @@ export const Conference = ({
           className={css({
             backgroundColor: 'primaryDark.50 !important',
           })}
-          onError={(e) => {
-            const failure = getMediaDeviceFailure(e)
-            if (failure && failure !== MediaDeviceFailure.Other) return
-
-            // connect() was aborted by a disconnect() before the join completed
-            if (
-              e instanceof ConnectionError &&
-              e.reason === ConnectionErrorReason.Cancelled
-            ) {
-              void captureEvent('connection-cancelled')
-              return
-            }
-
-            reportError('livekit_room_error', e, {
-              path: 'connect_publish',
-            })
-          }}
+          onError={handleError}
           onConnected={async () => {
             hasConnectedRef.current = true
             if (!apiConfig) return
