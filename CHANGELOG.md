@@ -13,6 +13,7 @@ and this project adheres to
 - ⬆️(summary) update ffmpeg to 8.1.3-r0
 - ✨(frontend) replace the Crisp chat with the La Suite support form
 - ⬆️(frontend) upgrade livekit-client to 2.23.0
+- ✨(backend) expose LiveKit reconnection settings in the config
 
 ### Fixed
 
