@@ -14,6 +14,10 @@ and this project adheres to
 - ✨(frontend) replace the Crisp chat with the La Suite support form
 - ⬆️(frontend) upgrade livekit-client to 2.23.0
 
+### Fixed
+
+- 🐛(frontend) show a page when the connection ends unexpectedly
+
 ## [1.36.3] - 2026-10-23
 
 ### Fixed
