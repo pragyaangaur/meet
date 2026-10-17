@@ -95,6 +95,10 @@ class BaseEgressService:
         # Cases below should be very infrequent as status changes should be
         # received and processed by `handle_ended`, thus `stop` would not
         # be called (unless failure and stop are very close in time).
+        # Exception: since LiveKit Egress v1.13, an audio-only egress only
+        # becomes active on its first audio packet, so a transcript stopped
+        # before anyone unmuted their microphone ends up ABORTED. Only direct
+        # API calls get there: the frontend offers to stop once started.
         # We therefore accept not to notify the user in this code branch.
         # This could be fixed in a future refactoring.
         if response.status == livekit_api.EgressStatus.EGRESS_ABORTED:
