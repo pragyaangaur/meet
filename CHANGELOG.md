@@ -18,6 +18,7 @@ and this project adheres to
 - ✨(frontend) replace the Crisp chat with the La Suite support form
 - ⬆️(frontend) upgrade livekit-client to 2.23.0
 - ✨(backend) expose LiveKit reconnection settings in the config
+- ✨(backend) keep recordings cut short by LiveKit egress
 
 ### Fixed
 

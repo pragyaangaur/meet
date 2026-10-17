@@ -109,6 +109,40 @@ def to_recording_event(egress_status):
     return event
 
 
+# Since LiveKit Egress v1.14, an egress cut short keeps its partial media file:
+# - an audio-only egress that lost its room connection uploads it, then ends
+#   FAILED with this error,
+# - an egress drained because its host ran out of CPU ends COMPLETE with this
+#   end reason, or FAILED if the drain outlasted its grace period and the
+#   egress got killed, possibly before the upload.
+EGRESS_ROOM_CONNECTION_FAILED_ERROR = "recording ended early: connection to room failed"
+EGRESS_CPU_EXHAUSTED_DETAILS = "End reason: CPU exhausted"
+
+
+def to_ended_recording_event(egress_info):
+    """Translate an ended LiveKit egress into a recording worker event.
+
+    Unlike `to_recording_event`, tell an egress interrupted with a partial
+    media file apart from a complete or failed one.
+    """
+
+    status = egress_info.status
+    is_cut_short = (
+        egress_info.error == EGRESS_ROOM_CONNECTION_FAILED_ERROR
+        or egress_info.details == EGRESS_CPU_EXHAUSTED_DETAILS
+    )
+    # Egress only sets a file's location once it is uploaded
+    has_uploaded_file = any(file.location for file in egress_info.file_results)
+
+    if is_cut_short and (
+        status == api.EgressStatus.EGRESS_COMPLETE
+        or (status == api.EgressStatus.EGRESS_FAILED and has_uploaded_file)
+    ):
+        return RecordingWorkerEvent.INTERRUPTED
+
+    return to_recording_event(status)
+
+
 class LiveKitEventsService:
     """Service for processing and handling LiveKit webhook events and notifications."""
 
@@ -221,7 +255,7 @@ class LiveKitEventsService:
                 f"Recording with worker ID {data.egress_info.egress_id} does not exist"
             ) from err
 
-        event = to_recording_event(data.egress_info.status)
+        event = to_ended_recording_event(data.egress_info)
         self._audit_recording_end(recording, event, data.egress_info.error_code)
 
         # Log if/why the recording failed
@@ -230,6 +264,7 @@ class LiveKitEventsService:
             event,
             error=data.egress_info.error,
             error_code=data.egress_info.error_code,
+            details=data.egress_info.details,
         )
 
         # Update room
